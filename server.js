@@ -1,37 +1,74 @@
 const { WebSocketServer } = require('ws');
 const port = process.env.PORT || 8080;
 const wss = new WebSocketServer({ port });
-let queue = [];
+const queues = { Unranked: [], Ranked: [] };
+const privates = new Map();
 let nextId = 1;
+
+const send = (ws, o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
+const newRoom = () => 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const newCode = () => {
+  let c;
+  do { c = Math.random().toString(36).slice(2, 7).toUpperCase(); } while (privates.has(c));
+  return c;
+};
+const pair = (a, b) => {
+  a.peer = b; b.peer = a;
+  const room = newRoom();
+  send(a, { type: 'matched', room, host: true });
+  send(b, { type: 'matched', room, host: false });
+};
 
 wss.on('connection', (ws) => {
   ws.id = nextId++;
   ws.peer = null;
-  ws.send(JSON.stringify({ type: 'hello', id: ws.id }));
+  ws.mode = null;
+  ws.code = null;
+  send(ws, { type: 'hello', id: ws.id });
 
   ws.on('message', (raw) => {
     let m;
     try { m = JSON.parse(raw); } catch { return; }
     if (m.type === 'queue') {
-      if (ws.peer || queue.includes(ws)) return;
-      queue.push(ws);
-      if (queue.length >= 2) {
-        const a = queue.shift();
-        const b = queue.shift();
-        const room = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-        a.peer = b; b.peer = a;
-        a.send(JSON.stringify({ type: 'matched', room, host: true }));
-        b.send(JSON.stringify({ type: 'matched', room, host: false }));
+      if (ws.peer || ws.mode) return;
+      const mode = queues[m.mode] ? m.mode : 'Unranked';
+      ws.mode = mode;
+      queues[mode].push(ws);
+      if (queues[mode].length >= 2) {
+        const a = queues[mode].shift();
+        const b = queues[mode].shift();
+        a.mode = null; b.mode = null;
+        pair(a, b);
       }
+    } else if (m.type === 'create') {
+      if (ws.peer || ws.mode) return;
+      const code = newCode();
+      ws.code = code;
+      ws.mode = 'Private';
+      privates.set(code, ws);
+      send(ws, { type: 'code', code });
+    } else if (m.type === 'join') {
+      if (ws.peer || ws.mode) return;
+      const code = String(m.code || '').toUpperCase().trim();
+      const host = privates.get(code);
+      if (!host || host.readyState !== 1 || host === ws) {
+        send(ws, { type: 'error', msg: 'No room with that code.' });
+        return;
+      }
+      privates.delete(code);
+      host.code = null; host.mode = null;
+      ws.mode = null;
+      pair(host, ws);
     } else if (m.type === 'state' && ws.peer && ws.peer.readyState === 1) {
-      ws.peer.send(JSON.stringify({ type: 'state', data: m.data }));
+      send(ws.peer, { type: 'state', data: m.data });
     }
   });
 
   ws.on('close', () => {
-    queue = queue.filter((x) => x !== ws);
+    if (ws.mode && queues[ws.mode]) queues[ws.mode] = queues[ws.mode].filter((x) => x !== ws);
+    if (ws.code) privates.delete(ws.code);
     if (ws.peer) {
-      if (ws.peer.readyState === 1) ws.peer.send(JSON.stringify({ type: 'left' }));
+      send(ws.peer, { type: 'left' });
       ws.peer.peer = null;
     }
   });
