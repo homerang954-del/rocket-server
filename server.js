@@ -12,11 +12,13 @@ const newCode = () => {
   do { c = Math.random().toString(36).slice(2, 7).toUpperCase(); } while (privates.has(c));
   return c;
 };
+const MAPS = ['Daylight', 'Night', 'Neon'];
 const pair = (a, b) => {
   a.peer = b; b.peer = a;
   const room = newRoom();
-  send(a, { type: 'matched', room, host: true });
-  send(b, { type: 'matched', room, host: false });
+  const map = MAPS[Math.floor(Math.random() * MAPS.length)];
+  send(a, { type: 'matched', room, host: true, map });
+  send(b, { type: 'matched', room, host: false, map });
 };
 
 wss.on('connection', (ws) => {
