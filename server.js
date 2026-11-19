@@ -61,6 +61,8 @@ wss.on('connection', (ws) => {
       host.code = null; host.mode = null;
       ws.mode = null;
       pair(host, ws);
+    } else if (m.type === 'skip' && ws.peer && ws.peer.readyState === 1) {
+      send(ws.peer, { type: 'skip' });
     } else if (m.type === 'state' && ws.peer && ws.peer.readyState === 1) {
       send(ws.peer, { type: 'state', data: m.data });
     }
