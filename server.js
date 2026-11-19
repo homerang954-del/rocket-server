@@ -62,7 +62,14 @@ wss.on('connection', (ws) => {
       ws.mode = null;
       pair(host, ws);
     } else if (m.type === 'skip' && ws.peer && ws.peer.readyState === 1) {
-      send(ws.peer, { type: 'skip' });
+      ws.skipOn = true;
+      const n = (ws.skipOn ? 1 : 0) + (ws.peer.skipOn ? 1 : 0);
+      send(ws, { type: 'skipcount', n });
+      send(ws.peer, { type: 'skipcount', n });
+      if (n >= 2) { ws.skipOn = false; ws.peer.skipOn = false; }
+    } else if (m.type === 'skipreset') {
+      ws.skipOn = false;
+      if (ws.peer) ws.peer.skipOn = false;
     } else if (m.type === 'state' && ws.peer && ws.peer.readyState === 1) {
       send(ws.peer, { type: 'state', data: m.data });
     }
